@@ -3,13 +3,22 @@ package br.com.zup.edu.ligaqualidade.desafiobiblioteca.modifique;
 import br.com.zup.edu.ligaqualidade.desafiobiblioteca.DadosDevolucao;
 import br.com.zup.edu.ligaqualidade.desafiobiblioteca.DadosEmprestimo;
 import br.com.zup.edu.ligaqualidade.desafiobiblioteca.EmprestimoConcedido;
-import br.com.zup.edu.ligaqualidade.desafiobiblioteca.pronto.*;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.modifique.entities.Biblioteca;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.modifique.entities.Exemplar;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.modifique.entities.PedidoEmprestimo;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.modifique.factory.BibliotecaFactory;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.modifique.factory.ExemplarFactory;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.modifique.factory.PedidoEmprestimoFactory;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.modifique.validators.*;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.pronto.DadosExemplar;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.pronto.DadosLivro;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.pronto.DadosUsuario;
+import br.com.zup.edu.ligaqualidade.desafiobiblioteca.pronto.TipoUsuario;
 
 import java.time.LocalDate;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class Solucao {
 
@@ -32,25 +41,66 @@ public class Solucao {
 	 * @param dataExpiracao aqui é a data que deve ser utilizada para verificar expiração
 	 * @return
 	 */
-	public static Set<EmprestimoConcedido> executa(Set<DadosLivro> livros,
+	public static Set<EmprestimoConcedido> executa(
+			Set<DadosLivro> livros,
 			Set<DadosExemplar> exemplares,
-			Set<DadosUsuario> usuarios, Set<DadosEmprestimo> emprestimos,
-			Set<DadosDevolucao> devolucoes, LocalDate dataExpiracao) {
+			Set<DadosUsuario> usuarios, 
+			Set<DadosEmprestimo> emprestimos,
+			Set<DadosDevolucao> devolucoes, 
+			LocalDate dataExpiracao) {		
+		
+		// *Preparando as entidades:
+		final Set<Exemplar> exemplaresCadastrados = exemplares
+				.parallelStream()
+				.map(dadosExemplar -> ExemplarFactory.buildExemplar(livros, dadosExemplar))
+				.collect(Collectors.toSet());
+		
+		final Biblioteca biblioteca = BibliotecaFactory.buildBiblioteca(exemplaresCadastrados, usuarios, dataExpiracao);
+		
+		
+		// *Processando os emprestimos:
+		return emprestimos
+				.stream()
+				
+				// *Contruindo o pedido de emprestimo:
+				.map(dadosEmprestimo -> PedidoEmprestimoFactory.buildPedidoEmprestimo(dadosEmprestimo, biblioteca))
+				
+				// *Preparando o contexto de validação pra esse emprestimo:
+				.map(pedidoEmprestimo -> new ContextoEmprestimoValidacao(biblioteca, pedidoEmprestimo))
+				
+				
+				// *Realizando as validações necessárias:
+				.filter(new ExemplarExiste()::isValid)
+				.filter(new PeriodoMaximoEmprestimo()::isValid)
+				.filter(new QuantidadeDeEmprestimosDoUsuario()::isValid)
+				.filter(new InformacaoDePeriodoDeEmprestimo()::isValid)
+				.filter(new CirculacaoExemplarPermitidaParaUsuario()::isValid)
+		
+				
+				// *Aqui significa que o emprestimo passou por todas as validações:
+				.map(contexto -> {
+					// *Pegando o pedido dentro do contexto:
+					final PedidoEmprestimo pedidoEmprestimo = contexto.getPedidoEmprestimo();
 
-		Set<EmprestimoConcedido> emprestimosConcedidos = new HashSet<>();
-		Map<Integer, Integer> countEmprestimosPadrao = new HashMap<>();
-
-		for (DadosEmprestimo emprestimo : emprestimos) {
-			DadosUsuario usuario = DadosHelper.buscaUsuario(emprestimo.idUsuario, usuarios);
-			DadosExemplar exemplar = DadosHelper.buscaExemplar(emprestimo.idLivro, exemplares);
-			LocalDate dataDevolucaoEstimada = LocalDate.now().plusDays(emprestimo.tempo);
-			if (livroEmprestavelEDevolvidoAntesDaDataConsiderada(dataExpiracao, usuario, exemplar, dataDevolucaoEstimada, countEmprestimosPadrao)) {
-				registrarEmprestimo(emprestimosConcedidos, usuario, exemplar, dataDevolucaoEstimada, countEmprestimosPadrao);
-			}
-		}
-
-		return emprestimosConcedidos;
+					// *Adicionando o emprestimo na lista de emprestimos do usuario:
+					pedidoEmprestimo.getUsuario().addEprestimoRealizado(pedidoEmprestimo);
+					
+					return pedidoEmprestimo;
+				})
+				
+				
+				// *Mapeando o retorno no type experado:
+				.map(emprestimo -> 
+						new EmprestimoConcedido(
+								emprestimo.getUsuario().getId(),
+								emprestimo.getExemplar().getId(),
+								LocalDate.now().plusDays(emprestimo.getPeriodo())
+						)
+				)
+				.collect(Collectors.toSet());
 	}
+	
+	
 
 	private static void registrarEmprestimo(Set<EmprestimoConcedido> emprestimosConcedidos, DadosUsuario usuario, DadosExemplar exemplar, LocalDate dataDevolucaoEstimada, Map<Integer, Integer> countEmprestimosPadrao) {
 		EmprestimoConcedido emprestimoConcedido = new EmprestimoConcedido(usuario.idUsuario, exemplar.idExemplar, dataDevolucaoEstimada);
