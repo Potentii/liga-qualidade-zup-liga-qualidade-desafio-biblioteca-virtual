@@ -18,7 +18,7 @@ public abstract class PedidoEmprestimoFactory {
         // *Buscando o exemplar do emprestimo:
         final Exemplar exemplar = biblioteca
                 .getEstoque()
-                .buscarExemplarPorId(dadosEmprestimo.idPedido)
+                .buscarExemplarPorIdLivro(dadosEmprestimo.idLivro)
                 .orElse(null);
 
         return new PedidoEmprestimo(dadosEmprestimo.idPedido, usuario, exemplar, dadosEmprestimo.tempo);

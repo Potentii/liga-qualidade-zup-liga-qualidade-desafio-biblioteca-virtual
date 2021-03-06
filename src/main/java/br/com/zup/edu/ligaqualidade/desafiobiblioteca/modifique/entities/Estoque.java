@@ -19,4 +19,12 @@ public class Estoque {
                 ? Optional.of(exemplaresPorId.get(id))
                 : Optional.empty();
     }
+
+    public Optional<Exemplar> buscarExemplarPorIdLivro(int idLivro){
+        return exemplaresPorId
+                .values()
+                .stream()
+                .filter(exemplar -> exemplar.getLivro().getId() == idLivro)
+                .findAny();
+    }
 }
